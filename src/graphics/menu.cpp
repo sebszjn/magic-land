@@ -9,6 +9,8 @@
 #include <GL/glut.h>
 
 #include <cmath>
+#include <cstdlib>
+#include <string>
 
 struct MeltState
 {
@@ -124,17 +126,11 @@ static void meltRenderFullscreen(int w, int h)
     glEnable(GL_TEXTURE_2D);
     glColor4f(1, 1, 1, 1);
 
-    // IMPORTANT: captura via glCopyTexSubImage2D costuma vir invertida em Y
-    // então invertimos aqui como você fez no fundo do menu
     glBegin(GL_QUADS);
-    glTexCoord2f(0, 1);
-    glVertex2f(0, 0);
-    glTexCoord2f(1, 1);
-    glVertex2f((float)w, 0);
-    glTexCoord2f(1, 0);
-    glVertex2f((float)w, (float)h);
-    glTexCoord2f(0, 0);
-    glVertex2f(0, (float)h);
+    glTexCoord2f(0, 1); glVertex2f(0, 0);
+    glTexCoord2f(1, 1); glVertex2f((float)w, 0);
+    glTexCoord2f(1, 0); glVertex2f((float)w, (float)h);
+    glTexCoord2f(0, 0); glVertex2f(0, (float)h);
     glEnd();
 
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -174,12 +170,11 @@ static void meltStartNow(int w, int h)
         g_melt.xRes = 1;
 
     for (int i = 0; i < g_melt.xRes; ++i)
-        g_melt.offsets[i] = frand(1.0f, 2.0f); // offsets base (igual Godot-ish)
+        g_melt.offsets[i] = frand(1.0f, 2.0f);
 
     g_melt.timer = 0.0f;
     g_melt.active = true;
 
-    // capture após desenhar o menu
     meltCaptureFramebuffer(w, h);
 }
 
@@ -188,22 +183,18 @@ void menuMeltRenderOverlay(int screenW, int screenH, float tempo)
     if (!g_drawMeltOverlay)
         return;
 
-    // se não está ativo, overlay acabou
     if (!g_melt.active)
     {
         g_drawMeltOverlay = false;
         return;
     }
 
-    // desenha por cima de qualquer render (jogo)
     glPushAttrib(GL_ALL_ATTRIB_BITS);
 
     begin2D(screenW, screenH);
 
     meltUpdateFromTempo(tempo);
 
-    // precisa do discard aparecer (buracos): não precisa blend,
-    // mas se quiser alpha, habilite blend
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -215,7 +206,6 @@ void menuMeltRenderOverlay(int screenW, int screenH, float tempo)
     glPopAttrib();
 }
 
-// funções públicas pro resto do jogo chamar
 void menuMeltRequestStart()
 {
     g_melt.requested = true;
@@ -234,18 +224,42 @@ static void drawTexturedFullscreen(int w, int h, GLuint texHandle)
 
     glColor4f(1, 1, 1, 1);
     glBegin(GL_QUADS);
-    glTexCoord2f(0, 1);
-    glVertex2f(0, 0);
-    glTexCoord2f(1, 1);
-    glVertex2f((float)w, 0);
-    glTexCoord2f(1, 0);
-    glVertex2f((float)w, (float)h);
-    glTexCoord2f(0, 0);
-    glVertex2f(0, (float)h);
+    glTexCoord2f(0, 1); glVertex2f(0, 0);
+    glTexCoord2f(1, 1); glVertex2f((float)w, 0);
+    glTexCoord2f(1, 0); glVertex2f((float)w, (float)h);
+    glTexCoord2f(0, 0); glVertex2f(0, (float)h);
     glEnd();
 
     glBindTexture(GL_TEXTURE_2D, 0);
     glDisable(GL_TEXTURE_2D);
+}
+
+// Paleta “templo/ruínas” por tipo de tela
+static void pickTitleColors(const std::string& title,
+                            float& mainR, float& mainG, float& mainB,
+                            float& glowR, float& glowG, float& glowB,
+                            float& shadowR, float& shadowG, float& shadowB)
+{
+    // Defaults (menu geral): verde/ciano místico
+    mainR = 0.80f; mainG = 1.00f; mainB = 0.92f;
+    glowR = 0.20f; glowG = 0.95f; glowB = 0.78f;
+    shadowR = 0.00f; shadowG = 0.00f; shadowB = 0.00f;
+
+    // Game over: frio/escuro (azul-ciano)
+    if (title.find("GAME OVER") != std::string::npos)
+    {
+        mainR = 0.75f; mainG = 0.92f; mainB = 1.00f;
+        glowR = 0.15f; glowG = 0.65f; glowB = 1.00f;
+        shadowR = 0.00f; shadowG = 0.00f; shadowB = 0.00f;
+    }
+
+    // Vitória: dourado/verde (templo)
+    if (title.find("VENCEU") != std::string::npos || title.find("VITOR") != std::string::npos)
+    {
+        mainR = 1.00f; mainG = 0.92f; mainB = 0.55f;
+        glowR = 0.35f; glowG = 1.00f; glowB = 0.70f;
+        shadowR = 0.00f; shadowG = 0.00f; shadowB = 0.00f;
+    }
 }
 
 void menuRender(int screenW, int screenH, float tempo,
@@ -261,13 +275,12 @@ void menuRender(int screenW, int screenH, float tempo,
     begin2D(screenW, screenH);
 
     // Fundo com imagem
-    // IMPORTANTE: troque o bind conforme o tipo real de a.texMenuBG
     drawTexturedFullscreen(screenW, screenH, a.texMenuBG);
 
-    // Se quiser “escurecer” um pouco pra destacar o texto:
+    // “névoa” leve por cima (menos escuro do que antes)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glColor4f(0, 0, 0, 0.25f);
+    glColor4f(0.02f, 0.06f, 0.05f, 0.20f);
     glBegin(GL_QUADS);
     glVertex2f(0, 0);
     glVertex2f((float)screenW, 0);
@@ -276,7 +289,7 @@ void menuRender(int screenW, int screenH, float tempo,
     glEnd();
     glDisable(GL_BLEND);
 
-    // título grosso (seu estilo)
+    // ===== TÍTULO (estilo novo) =====
     float scaleX = 1.0f;
     float scaleY = 1.0f;
 
@@ -288,9 +301,12 @@ void menuRender(int screenW, int screenH, float tempo,
     float xBase = (screenW - titleW) / 2.0f;
     float yBase = (screenH / 2.0f) + 40.0f;
 
-    auto thick = [&](float x, float y, float spread, float r, float g, float b)
+    float mainR, mainG, mainB, glowR, glowG, glowB, shR, shG, shB;
+    pickTitleColors(title, mainR, mainG, mainB, glowR, glowG, glowB, shR, shG, shB);
+
+    auto thick = [&](float x, float y, float spread, float r, float g, float b, float a = 1.0f)
     {
-        glColor3f(r, g, b);
+        glColor4f(r, g, b, a);
         for (float dy = -spread; dy <= spread; dy += 1.5f)
         {
             for (float dx = -spread; dx <= spread; dx += 1.5f)
@@ -305,11 +321,16 @@ void menuRender(int screenW, int screenH, float tempo,
         }
     };
 
-    thick(xBase + 10.0f, yBase - 10.0f, 4.0f, 0.0f, 0.0f, 0.0f);
-    thick(xBase + 5.0f, yBase - 5.0f, 3.0f, 0.5f, 0.0f, 0.0f);
-    thick(xBase, yBase, 1.5f, 1.0f, 0.1f, 0.1f);
+    // sombra forte (preto)
+    thick(xBase + 10.0f, yBase - 10.0f, 4.0f, shR, shG, shB, 1.0f);
 
-    // subtítulo
+    // glow colorido (templo)
+    thick(xBase + 4.0f, yBase - 4.0f, 3.0f, glowR, glowG, glowB, 0.65f);
+
+    // texto principal (claro)
+    thick(xBase, yBase, 1.25f, mainR, mainG, mainB, 1.0f);
+
+    // ===== SUBTÍTULO =====
     float scaleSub = 0.22f;
 
     float subW = 0.0f;
@@ -320,10 +341,11 @@ void menuRender(int screenW, int screenH, float tempo,
     float xSub = (screenW - subW) / 2.0f;
     float ySub = (screenH / 2.0f) - 90.0f;
 
+    // blink suave em dourado/verde
     if ((int)(tempo * 3) % 2 == 0)
-        glColor3f(1, 1, 1);
+        glColor3f(1.0f, 0.92f, 0.60f);
     else
-        glColor3f(1, 1, 0);
+        glColor3f(0.70f, 1.0f, 0.85f);
 
     glLineWidth(3.0f);
     glPushMatrix();
@@ -333,14 +355,14 @@ void menuRender(int screenW, int screenH, float tempo,
         glutStrokeCharacter(GLUT_STROKE_ROMAN, c);
     glPopMatrix();
 
+    // Start melt -> entra no jogo no próximo frame
     if (g_melt.requested && !g_melt.active)
     {
         g_melt.requested = false;
 
-        meltStartNow(screenW, screenH); // captura o menu desenhado
-        g_melt.lastTempo = -1.0f;       // reseta dt do overlay
+        meltStartNow(screenW, screenH);
+        g_melt.lastTempo = -1.0f;
 
-        // entra no jogo NO PRÓXIMO FRAME
         gameSetState(GameState::JOGANDO);
     }
 
@@ -367,8 +389,8 @@ void pauseMenuRender(int screenW, int screenH, float tempo)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // 1) filtro avermelhado (em vez de preto)
-    glColor4f(0.35f, 0.00f, 0.00f, 0.35f); // vermelho escuro transparente
+    // 1) filtro CLARO (místico verde/azul) — sem vermelho
+    glColor4f(0.10f, 0.18f, 0.16f, 0.28f);
     glBegin(GL_QUADS);
     glVertex2f(0, 0);
     glVertex2f((float)screenW, 0);
@@ -376,12 +398,12 @@ void pauseMenuRender(int screenW, int screenH, float tempo)
     glVertex2f(0, (float)screenH);
     glEnd();
 
-    // 2) vinheta (bordas mais escuras)
-    float m = 70.0f; // largura da borda
+    // 2) vinheta mais suave
+    float m = 70.0f;
     glBegin(GL_QUADS);
 
     // topo
-    glColor4f(0.0f, 0.0f, 0.0f, 0.55f);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.45f);
     glVertex2f(0, (float)screenH);
     glVertex2f((float)screenW, (float)screenH);
     glColor4f(0.0f, 0.0f, 0.0f, 0.0f);
@@ -389,7 +411,7 @@ void pauseMenuRender(int screenW, int screenH, float tempo)
     glVertex2f(0, (float)screenH - m);
 
     // baixo
-    glColor4f(0.0f, 0.0f, 0.0f, 0.55f);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.45f);
     glVertex2f(0, 0);
     glVertex2f((float)screenW, 0);
     glColor4f(0.0f, 0.0f, 0.0f, 0.0f);
@@ -397,7 +419,7 @@ void pauseMenuRender(int screenW, int screenH, float tempo)
     glVertex2f(0, m);
 
     // esquerda
-    glColor4f(0.0f, 0.0f, 0.0f, 0.55f);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.45f);
     glVertex2f(0, 0);
     glVertex2f(0, (float)screenH);
     glColor4f(0.0f, 0.0f, 0.0f, 0.0f);
@@ -405,7 +427,7 @@ void pauseMenuRender(int screenW, int screenH, float tempo)
     glVertex2f(m, 0);
 
     // direita
-    glColor4f(0.0f, 0.0f, 0.0f, 0.55f);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.45f);
     glVertex2f((float)screenW, 0);
     glVertex2f((float)screenW, (float)screenH);
     glColor4f(0.0f, 0.0f, 0.0f, 0.0f);
@@ -421,21 +443,21 @@ void pauseMenuRender(int screenW, int screenH, float tempo)
     float x = (screenW - w) / 2.0f;
     float y = (screenH / 2.0f) + 20.0f;
 
-    // glow pulsante vermelho atrás
-    float pulse = 0.15f + 0.10f * (0.5f + 0.5f * std::sin(tempo * 6.0f)); // 0.15..0.25
+    // glow pulsante verde/ciano
+    float pulse = 0.18f + 0.12f * (0.5f + 0.5f * std::sin(tempo * 5.0f));
     glLineWidth(8.0f);
-    glColor4f(1.0f, 0.15f, 0.15f, pulse);
+    glColor4f(0.25f, 1.0f, 0.80f, pulse);
     uiDrawStrokeText(x + 2, y - 2, t, scale);
     uiDrawStrokeText(x - 2, y + 2, t, scale);
 
-    // contorno preto forte
+    // contorno preto
     glLineWidth(6.0f);
     glColor3f(0, 0, 0);
     uiDrawStrokeText(x + 3, y - 3, t, scale);
 
-    // texto principal branco
+    // texto principal (claro)
     glLineWidth(4.0f);
-    glColor3f(1, 1, 1);
+    glColor3f(0.90f, 1.0f, 0.95f);
     uiDrawStrokeText(x, y, t, scale);
 
     // 4) subtítulo
@@ -446,9 +468,9 @@ void pauseMenuRender(int screenW, int screenH, float tempo)
     float ySub = (screenH / 2.0f) - 60.0f;
 
     if ((int)(tempo * 3) % 2 == 0)
-        glColor3f(1, 1, 0);
+        glColor3f(1.0f, 0.92f, 0.60f);
     else
-        glColor3f(1, 1, 1);
+        glColor3f(0.70f, 1.0f, 0.85f);
 
     glLineWidth(3.0f);
     uiDrawStrokeText(xSub, ySub, sub, scaleSub);

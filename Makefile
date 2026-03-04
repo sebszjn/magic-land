@@ -7,7 +7,7 @@
 CXX       := g++
 CXXFLAGS  := -g -O0 -Wall -Wextra -Iinclude
 LDFLAGS   :=
-LDLIBS    := -lGLEW -lGL -lGLU -lglut -lopenal
+LDLIBS    := -lglew32 -lopengl32 -lglu32 -lfreeglut -lopenal
 
 TARGET    := DoomLike
 BUILD_DIR := build

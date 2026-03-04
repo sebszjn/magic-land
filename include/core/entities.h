@@ -1,7 +1,5 @@
 #pragma once
-
-bool isWalkable(float x, float z);
-void updateEntities(float dt);
+#include <vector>
 
 // Configurações da IA
 const float ENEMY_SPEED = 2.5f;
@@ -19,35 +17,40 @@ enum EnemyState
 struct Enemy
 {
     int type;
-    float x, z;       // Posição no mundo
-    float hp;         // Vida
-    EnemyState state; // Estado atual (IA)
+    float x, z;
+    float hp;
+    EnemyState state;
     float startX, startZ;
 
     float respawnTimer;
-    // Animação
+
     int animFrame;
     float animTimer;
 
-    // NOVO: Tempo de espera entre um ataque e outro
     float attackCooldown;
-
-    // NOVO: Tempo que ele fica com a textura de dano
     float hurtTimer;
+
+    // NOVO
+    bool isBoss = false;
 };
 
 enum ItemType
 {
     ITEM_HEALTH,
     ITEM_AMMO,
-    ITEM_AMMO_BOX
+
+    // NOVO
+    ITEM_KEY,        // dropa do inimigo
+    ITEM_SPECIAL     // pega na fase 2 e libera ataque alternativo
 };
 
 struct Item
 {
     float x, z;
     ItemType type;
-    bool active; // Se false, já foi pego
-
+    bool active;
     float respawnTimer;
 };
+
+bool isWalkable(float x, float z);
+void updateEntities(float dt);

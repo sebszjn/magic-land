@@ -2,114 +2,80 @@
 #include "core/game.h"
 #include "core/camera.h"
 #include "audio/audio_system.h"
+#include "core/entities.h"
 #include <cmath>
 
 constexpr int MAX_MAGAZINE = 12;
 
-// Ajuste fino: raio do hitbox do inimigo no chão (mundo XZ)
 static constexpr float HIT_RADIUS = 0.55f;
-
-// Ajuste fino: alcance máximo do tiro no mundo
 static constexpr float MAX_RANGE  = 17.0f;
 
 static bool rayCircleIntersectXZ(
-    float ox, float oz,     // origem do raio
-    float dx, float dz,     // direção NORMALIZADA
-    float cx, float cz,     // centro do inimigo
-    float r,                // raio da hitbox
-    float &outT             // distância ao longo do raio
+    float ox, float oz,
+    float dx, float dz, // normalizado
+    float cx, float cz,
+    float r,
+    float &outT
 )
 {
-    // vetor da origem até o centro
     float fx = cx - ox;
     float fz = cz - oz;
 
-    // projeção no raio
     float proj = fx * dx + fz * dz;
-    if (proj < 0.0f)
-        return false; // inimigo atrás
+    if (proj < 0.0f) return false;
 
-    // ponto mais próximo no raio
     float px = ox + dx * proj;
     float pz = oz + dz * proj;
 
-    // distância do centro ao ponto mais próximo
     float ex = cx - px;
     float ez = cz - pz;
     float d2 = ex * ex + ez * ez;
 
     float r2 = r * r;
-    if (d2 > r2)
-        return false; // não cruza o círculo
+    if (d2 > r2) return false;
 
-    // calcula ponto de entrada na circunferência (o mais próximo)
     float thc = std::sqrt(r2 - d2);
-    float t0 = proj - thc; // entrada
-    float t1 = proj + thc; // saída
+    float t0 = proj - thc;
+    float t1 = proj + thc;
 
-    // se estiver dentro do círculo, t0 pode ser negativo
     outT = (t0 >= 0.0f) ? t0 : t1;
     return outT >= 0.0f;
 }
 
-void playerTryReload()
+static void dropKeyAt(float x, float z)
 {
-    auto &g = gameContext();
-    auto &audio = gameAudio();
+    auto &lvl = gameLevel();
 
-    if (g.weapon.state != WeaponState::W_IDLE)
-        return;
-    if (g.player.currentAmmo >= MAX_MAGAZINE)
-        return;
-    if (g.player.reserveAmmo <= 0)
-        return;
+    Item k;
+    k.type = ITEM_KEY;
+    k.x = x;
+    k.z = z;
+    k.active = true;
+    k.respawnTimer = 0.0f;
 
-    g.weapon.state = WeaponState::W_RELOAD_1;
-    g.weapon.timer = 0.50f;
-
-    audioPlayReload(audio);
+    lvl.items.push_back(k);
 }
 
-void playerTryAttack()
+static void doShoot(int damage)
 {
     auto &g = gameContext();
     auto &lvl = gameLevel();
-    auto &audio = gameAudio();
 
-    if (g.weapon.state != WeaponState::W_IDLE)
-        return;
-    if (g.player.currentAmmo <= 0)
-        return;
-
-    g.player.currentAmmo--;
-
-    audioOnPlayerShot(audio);
-    audioPlayShot(audio);
-
-    g.weapon.state = WeaponState::W_FIRE_1;
-    g.weapon.timer = 0.08f;
-
-    // 1) raio sai do centro da visão do player (yaw)
     float radYaw = yaw * 3.14159f / 180.0f;
     float dirX = std::sin(radYaw);
     float dirZ = -std::cos(radYaw);
 
-    // normaliza direção
     float len = std::sqrt(dirX * dirX + dirZ * dirZ);
-    if (len <= 0.0f)
-        return;
-    dirX /= len;
-    dirZ /= len;
+    if (len <= 0.0f) return;
+    dirX /= len; dirZ /= len;
 
-    // 2) procura o inimigo mais próximo que o raio intersecta
     int bestIdx = -1;
     float bestT = MAX_RANGE;
 
     for (int i = 0; i < (int)lvl.enemies.size(); ++i)
     {
         auto &en = lvl.enemies[i];
-        if (en.state == STATE_DEAD)
-            continue;
+        if (en.state == STATE_DEAD) continue;
 
         float tHit = 0.0f;
         if (rayCircleIntersectXZ(camX, camZ, dirX, dirZ, en.x, en.z, HIT_RADIUS, tHit))
@@ -122,29 +88,84 @@ void playerTryAttack()
         }
     }
 
-    // 3) se acertou alguém, aplica dano; se não, não faz nada
-    if (bestIdx >= 0)
+    if (bestIdx < 0) return;
+
+    auto &en = lvl.enemies[bestIdx];
+    en.hp -= damage;
+    en.hurtTimer = 0.5f;
+
+    if (en.hp <= 0)
     {
-        auto &en = lvl.enemies[bestIdx];
+        en.state = STATE_DEAD;
+        en.respawnTimer = en.isBoss ? 999999.0f : 15.0f; // boss não respawna
 
-        en.hp -= 30;
-        en.hurtTimer = 0.5f;
+        // dropa 1 chave
+        dropKeyAt(en.x, en.z);
 
-        if (en.hp <= 0)
-        {
-            en.state = STATE_DEAD;
-            en.respawnTimer = 15.0f;
-
-            Item drop;
-            drop.type = ITEM_AMMO;
-            drop.x = en.x;
-            drop.z = en.z;
-            drop.active = true;
-            drop.respawnTimer = 0.0f;
-
-            lvl.items.push_back(drop);
-        }
+        // opcional: drop de ammo
+        Item drop;
+        drop.type = ITEM_AMMO;
+        drop.x = en.x;
+        drop.z = en.z;
+        drop.active = true;
+        drop.respawnTimer = 0.0f;
+        lvl.items.push_back(drop);
     }
+}
+
+void playerTryReload()
+{
+    auto &g = gameContext();
+    auto &audio = gameAudio();
+
+    if (g.weapon.state != WeaponState::W_IDLE) return;
+    if (g.player.currentAmmo >= MAX_MAGAZINE) return;
+    if (g.player.reserveAmmo <= 0) return;
+
+    g.weapon.state = WeaponState::W_RELOAD_1;
+    g.weapon.timer = 0.50f;
+
+    audioPlayReload(audio);
+}
+
+void playerTryAttack()
+{
+    auto &g = gameContext();
+    auto &audio = gameAudio();
+
+    if (g.weapon.state != WeaponState::W_IDLE) return;
+    if (g.player.currentAmmo <= 0) return;
+
+    g.player.currentAmmo--;
+
+    audioOnPlayerShot(audio);
+    audioPlayShot(audio);
+
+    g.weapon.state = WeaponState::W_FIRE_1;
+    g.weapon.timer = 0.08f;
+
+    doShoot(30);
+}
+
+void playerTryAltAttack()
+{
+    auto &g = gameContext();
+    auto &audio = gameAudio();
+
+    if (!g.player.altUnlocked) return;
+    if (g.player.altAmmo <= 0) return;
+    if (g.weapon.state != WeaponState::W_IDLE) return;
+
+    g.player.altAmmo--;
+
+    // som pode ser o mesmo por enquanto
+    audioOnPlayerShot(audio);
+    audioPlayShot(audio);
+
+    g.weapon.state = WeaponState::W_FIRE_1;
+    g.weapon.timer = 0.08f;
+
+    doShoot(60); // dano dobrado
 }
 
 void updateWeaponAnim(float dt)
@@ -156,12 +177,10 @@ void updateWeaponAnim(float dt)
     const float RELOAD_T2 = 0.85f;
     const float RELOAD_T3 = 0.25f;
 
-    if (g.weapon.state == WeaponState::W_IDLE)
-        return;
+    if (g.weapon.state == WeaponState::W_IDLE) return;
 
     g.weapon.timer -= dt;
-    if (g.weapon.timer > 0.0f)
-        return;
+    if (g.weapon.timer > 0.0f) return;
 
     if (g.weapon.state == WeaponState::W_FIRE_1)
     {
@@ -200,8 +219,7 @@ void updateWeaponAnim(float dt)
         g.weapon.timer = 0.0f;
 
         int needed = MAX_MAGAZINE - g.player.currentAmmo;
-        if (needed > g.player.reserveAmmo)
-            needed = g.player.reserveAmmo;
+        if (needed > g.player.reserveAmmo) needed = g.player.reserveAmmo;
 
         g.player.currentAmmo += needed;
         g.player.reserveAmmo -= needed;

@@ -1,35 +1,34 @@
 #include <GL/glew.h>
 #include <GL/glut.h>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+
 #include "core/game_state.h"
 #include "graphics/drawlevel.h"
 #include "level/levelmetrics.h"
 #include "utils/utils.h"
-#include <cstdio>
+#include "core/entities.h"
+#include "level/maploader.h"
 
 // =====================
 // CONFIG / CONSTANTES
 // =====================
+static const float TILE = 4.0f;
+static const float CEILING_H = 4.0f;
+static const float WALL_H = 4.0f;
+static const float EPS_Y = 0.001f;
 
-// Config do grid
-static const float TILE = 4.0f;      // tamanho do tile no mundo (ajuste)
-static const float CEILING_H = 4.0f; // altura do teto
-static const float WALL_H = 4.0f;    // altura da parede
-static const float EPS_Y = 0.001f;   // evita z-fighting
-
-static const GLfloat kAmbientOutdoor[] = {0.45f, 0.30f, 0.25f, 1.0f}; // quente (seu atual)
-static const GLfloat kAmbientIndoor[] = {0.12f, 0.12f, 0.18f, 1.0f};  // frio/azulado
+static const GLfloat kAmbientOutdoor[] = {0.45f, 0.30f, 0.25f, 1.0f};
+static const GLfloat kAmbientIndoor[]  = {0.12f, 0.12f, 0.18f, 1.0f};
 
 // ======================
-// CONFIG ÚNICA DO CULLING (XZ)
+// CULLING (XZ)
 // ======================
-static float gCullHFovDeg = 170.0f;     // FOV horizontal do culling (cenário + entidades)
-static float gCullNearTiles = 2.0f;     // dentro disso não faz culling angular
-static float gCullMaxDistTiles = 20.0f; // 0 = sem limite; em tiles
+static float gCullHFovDeg = 170.0f;
+static float gCullNearTiles = 2.0f;
+static float gCullMaxDistTiles = 20.0f;
 
-// Retorna TRUE se deve renderizar o objeto no plano XZ (distância + cone de FOV)
-// - Usa as configs globais gCull*
-// - Usa forward já normalizado (fwdx,fwdz) e flag hasFwd
 static inline bool isVisibleXZ(float objX, float objZ,
                                float camX, float camZ,
                                bool hasFwd, float fwdx, float fwdz)
@@ -38,26 +37,17 @@ static inline bool isVisibleXZ(float objX, float objZ,
     float vz = objZ - camZ;
     float distSq = vx * vx + vz * vz;
 
-    // 0) Distância máxima (se habilitada)
     if (gCullMaxDistTiles > 0.0f)
     {
         float maxDist = gCullMaxDistTiles * TILE;
-        float maxDistSq = maxDist * maxDist;
-        if (distSq > maxDistSq)
-            return false;
+        if (distSq > maxDist * maxDist) return false;
     }
 
-    // 1) Dentro do near: não faz culling angular
     float nearDist = gCullNearTiles * TILE;
-    float nearDistSq = nearDist * nearDist;
-    if (distSq <= nearDistSq)
-        return true;
+    if (distSq <= nearDist * nearDist) return true;
 
-    // 2) Sem forward válido: não faz culling angular
-    if (!hasFwd)
-        return true;
+    if (!hasFwd) return true;
 
-    // 3) Cone por FOV horizontal
     float cosHalf = std::cos(deg2rad(gCullHFovDeg * 0.5f));
 
     float invDist = 1.0f / std::sqrt(distSq);
@@ -74,6 +64,9 @@ static void bindTexture0(GLuint tex)
     glBindTexture(GL_TEXTURE_2D, tex);
 }
 
+// =====================
+// LUZ INDOOR
+// =====================
 static float hash01(float x)
 {
     float s = sinf(x * 12.9898f) * 43758.5453f;
@@ -89,12 +82,8 @@ static float flickerFluorescente(float t)
     if (r < 0.22f)
     {
         float phase = t * rate - block;
-
-        if (phase > 0.35f && phase < 0.55f)
-            return 0.12f;
-
-        if (r < 0.06f && phase > 0.65f && phase < 0.78f)
-            return 0.40f;
+        if (phase > 0.35f && phase < 0.55f) return 0.12f;
+        if (r < 0.06f && phase > 0.65f && phase < 0.78f) return 0.40f;
     }
 
     return 0.96f + 0.04f * sinf(t * 5.0f);
@@ -105,18 +94,10 @@ static void setIndoorLampAt(float x, float z, float intensity)
     GLfloat pos[] = {x, CEILING_H - 0.05f, z, 1.0f};
     glLightfv(GL_LIGHT1, GL_POSITION, pos);
 
-    GLfloat diff[] = {
-        1.20f * intensity,
-        1.22f * intensity,
-        1.28f * intensity,
-        1.0f};
+    GLfloat diff[] = {1.20f * intensity, 1.22f * intensity, 1.28f * intensity, 1.0f};
     glLightfv(GL_LIGHT1, GL_DIFFUSE, diff);
 
-    GLfloat amb[] = {
-        1.10f * intensity,
-        1.10f * intensity,
-        1.12f * intensity,
-        1.0f};
+    GLfloat amb[] = {1.10f * intensity, 1.10f * intensity, 1.12f * intensity, 1.0f};
     glLightfv(GL_LIGHT1, GL_AMBIENT, amb);
 }
 
@@ -141,6 +122,9 @@ static void endIndoor()
     glEnable(GL_LIGHT0);
 }
 
+// =====================
+// GEOMETRIA CHÃO/TETO
+// =====================
 static void desenhaQuadTeto(float x, float z, float tile, float tilesUV)
 {
     float half = tile * 0.5f;
@@ -148,14 +132,10 @@ static void desenhaQuadTeto(float x, float z, float tile, float tilesUV)
     glBegin(GL_QUADS);
     glNormal3f(0.0f, -1.0f, 0.0f);
 
-    glTexCoord2f(0.0f, 0.0f);
-    glVertex3f(x - half, CEILING_H, z - half);
-    glTexCoord2f(tilesUV, 0.0f);
-    glVertex3f(x + half, CEILING_H, z - half);
-    glTexCoord2f(tilesUV, tilesUV);
-    glVertex3f(x + half, CEILING_H, z + half);
-    glTexCoord2f(0.0f, tilesUV);
-    glVertex3f(x - half, CEILING_H, z + half);
+    glTexCoord2f(0.0f, 0.0f);       glVertex3f(x - half, CEILING_H, z - half);
+    glTexCoord2f(tilesUV, 0.0f);    glVertex3f(x + half, CEILING_H, z - half);
+    glTexCoord2f(tilesUV, tilesUV); glVertex3f(x + half, CEILING_H, z + half);
+    glTexCoord2f(0.0f, tilesUV);    glVertex3f(x - half, CEILING_H, z + half);
     glEnd();
 }
 
@@ -166,14 +146,10 @@ static void desenhaQuadChao(float x, float z, float tile, float tilesUV)
     glBegin(GL_QUADS);
     glNormal3f(0.0f, 1.0f, 0.0f);
 
-    glTexCoord2f(0.0f, 0.0f);
-    glVertex3f(x - half, EPS_Y, z + half);
-    glTexCoord2f(tilesUV, 0.0f);
-    glVertex3f(x + half, EPS_Y, z + half);
-    glTexCoord2f(tilesUV, tilesUV);
-    glVertex3f(x + half, EPS_Y, z - half);
-    glTexCoord2f(0.0f, tilesUV);
-    glVertex3f(x - half, EPS_Y, z - half);
+    glTexCoord2f(0.0f, 0.0f);       glVertex3f(x - half, EPS_Y, z + half);
+    glTexCoord2f(tilesUV, 0.0f);    glVertex3f(x + half, EPS_Y, z + half);
+    glTexCoord2f(tilesUV, tilesUV); glVertex3f(x + half, EPS_Y, z - half);
+    glTexCoord2f(0.0f, tilesUV);    glVertex3f(x - half, EPS_Y, z - half);
     glEnd();
 }
 
@@ -194,7 +170,9 @@ static void desenhaTileChao(float x, float z, GLuint texChaoX, bool temTeto)
     }
 }
 
-// --- Desenha parede FACE POR FACE ---
+// =====================
+// PAREDES
+// =====================
 static void desenhaParedePorFace(float x, float z, GLuint texParedeX, int f)
 {
     float half = TILE * 0.5f;
@@ -210,58 +188,41 @@ static void desenhaParedePorFace(float x, float z, GLuint texParedeX, int f)
 
     switch (f)
     {
-    case 0: // z+ (Frente)
+    case 0: // z+
         glNormal3f(0.0f, 0.0f, 1.0f);
-        glTexCoord2f(0.0f, 0.0f);
-        glVertex3f(x - half, 0.0f, z + half);
-        glTexCoord2f(tilesX, 0.0f);
-        glVertex3f(x + half, 0.0f, z + half);
-        glTexCoord2f(tilesX, tilesY);
-        glVertex3f(x + half, WALL_H, z + half);
-        glTexCoord2f(0.0f, tilesY);
-        glVertex3f(x - half, WALL_H, z + half);
+        glTexCoord2f(0.0f, 0.0f);       glVertex3f(x - half, 0.0f, z + half);
+        glTexCoord2f(tilesX, 0.0f);     glVertex3f(x + half, 0.0f, z + half);
+        glTexCoord2f(tilesX, tilesY);   glVertex3f(x + half, WALL_H, z + half);
+        glTexCoord2f(0.0f, tilesY);     glVertex3f(x - half, WALL_H, z + half);
         break;
 
-    case 1: // z- (Trás)
+    case 1: // z-
         glNormal3f(0.0f, 0.0f, -1.0f);
-        glTexCoord2f(0.0f, 0.0f);
-        glVertex3f(x + half, 0.0f, z - half);
-        glTexCoord2f(tilesX, 0.0f);
-        glVertex3f(x - half, 0.0f, z - half);
-        glTexCoord2f(tilesX, tilesY);
-        glVertex3f(x - half, WALL_H, z - half);
-        glTexCoord2f(0.0f, tilesY);
-        glVertex3f(x + half, WALL_H, z - half);
+        glTexCoord2f(0.0f, 0.0f);       glVertex3f(x + half, 0.0f, z - half);
+        glTexCoord2f(tilesX, 0.0f);     glVertex3f(x - half, 0.0f, z - half);
+        glTexCoord2f(tilesX, tilesY);   glVertex3f(x - half, WALL_H, z - half);
+        glTexCoord2f(0.0f, tilesY);     glVertex3f(x + half, WALL_H, z - half);
         break;
 
-    case 2: // x+ (Direita)
+    case 2: // x+
         glNormal3f(1.0f, 0.0f, 0.0f);
-        glTexCoord2f(0.0f, 0.0f);
-        glVertex3f(x + half, 0.0f, z + half);
-        glTexCoord2f(tilesX, 0.0f);
-        glVertex3f(x + half, 0.0f, z - half);
-        glTexCoord2f(tilesX, tilesY);
-        glVertex3f(x + half, WALL_H, z - half);
-        glTexCoord2f(0.0f, tilesY);
-        glVertex3f(x + half, WALL_H, z + half);
+        glTexCoord2f(0.0f, 0.0f);       glVertex3f(x + half, 0.0f, z + half);
+        glTexCoord2f(tilesX, 0.0f);     glVertex3f(x + half, 0.0f, z - half);
+        glTexCoord2f(tilesX, tilesY);   glVertex3f(x + half, WALL_H, z - half);
+        glTexCoord2f(0.0f, tilesY);     glVertex3f(x + half, WALL_H, z + half);
         break;
 
-    case 3: // x- (Esquerda)
+    case 3: // x-
         glNormal3f(-1.0f, 0.0f, 0.0f);
-        glTexCoord2f(0.0f, 0.0f);
-        glVertex3f(x - half, 0.0f, z - half);
-        glTexCoord2f(tilesX, 0.0f);
-        glVertex3f(x - half, 0.0f, z + half);
-        glTexCoord2f(tilesX, tilesY);
-        glVertex3f(x - half, WALL_H, z + half);
-        glTexCoord2f(0.0f, tilesY);
-        glVertex3f(x - half, WALL_H, z - half);
+        glTexCoord2f(0.0f, 0.0f);       glVertex3f(x - half, 0.0f, z - half);
+        glTexCoord2f(tilesX, 0.0f);     glVertex3f(x - half, 0.0f, z + half);
+        glTexCoord2f(tilesX, tilesY);   glVertex3f(x - half, WALL_H, z + half);
+        glTexCoord2f(0.0f, tilesY);     glVertex3f(x - half, WALL_H, z - half);
         break;
     }
     glEnd();
 }
 
-// Wrapper para desenhar o cubo todo (parede outdoor)
 static void desenhaParedeCuboCompleto(float x, float z, GLuint texParedeX)
 {
     desenhaParedePorFace(x, z, texParedeX, 0);
@@ -273,31 +234,31 @@ static void desenhaParedeCuboCompleto(float x, float z, GLuint texParedeX)
     glBindTexture(GL_TEXTURE_2D, texParedeX);
     glBegin(GL_QUADS);
     glNormal3f(0.0f, 1.0f, 0.0f);
-    glTexCoord2f(0.0f, 0.0f);
-    glVertex3f(x - half, WALL_H, z + half);
-    glTexCoord2f(1.0f, 0.0f);
-    glVertex3f(x + half, WALL_H, z + half);
-    glTexCoord2f(1.0f, 1.0f);
-    glVertex3f(x + half, WALL_H, z - half);
-    glTexCoord2f(0.0f, 1.0f);
-    glVertex3f(x - half, WALL_H, z - half);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(x - half, WALL_H, z + half);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(x + half, WALL_H, z + half);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(x + half, WALL_H, z - half);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(x - half, WALL_H, z - half);
     glEnd();
 }
 
+// =====================
+// SHADERS (lava/sangue)
+// =====================
 static void desenhaTileLava(float x, float z, const RenderAssets &r, float time)
 {
     glUseProgram(r.progLava);
 
     GLint locTime = glGetUniformLocation(r.progLava, "uTime");
-    GLint locStr = glGetUniformLocation(r.progLava, "uStrength");
-    GLint locScr = glGetUniformLocation(r.progLava, "uScroll");
+    GLint locStr  = glGetUniformLocation(r.progLava, "uStrength");
+    GLint locScr  = glGetUniformLocation(r.progLava, "uScroll");
     GLint locHeat = glGetUniformLocation(r.progLava, "uHeat");
-    GLint locTex = glGetUniformLocation(r.progLava, "uTexture");
+    GLint locTex  = glGetUniformLocation(r.progLava, "uTexture");
 
     glUniform1f(locTime, time);
     glUniform1f(locStr, 1.0f);
-    glUniform2f(locScr, 0.1f, 0.0f);
-    glUniform1f(locHeat, 0.6f);
+
+    glUniform2f(locScr, 0.03f, 0.01f);
+    glUniform1f(locHeat, 0.35f);
 
     bindTexture0(r.texLava);
     glUniform1i(locTex, 0);
@@ -313,9 +274,9 @@ static void desenhaTileSangue(float x, float z, const RenderAssets &r, float tim
     glUseProgram(r.progSangue);
 
     GLint locTime = glGetUniformLocation(r.progSangue, "uTime");
-    GLint locStr = glGetUniformLocation(r.progSangue, "uStrength");
-    GLint locSpd = glGetUniformLocation(r.progSangue, "uSpeed");
-    GLint locTex = glGetUniformLocation(r.progSangue, "uTexture");
+    GLint locStr  = glGetUniformLocation(r.progSangue, "uStrength");
+    GLint locSpd  = glGetUniformLocation(r.progSangue, "uSpeed");
+    GLint locTex  = glGetUniformLocation(r.progSangue, "uTexture");
 
     glUniform1f(locTime, time);
     glUniform1f(locStr, 1.0f);
@@ -330,30 +291,28 @@ static void desenhaTileSangue(float x, float z, const RenderAssets &r, float tim
     glUseProgram(0);
 }
 
-// --- Checa vizinhos ---
+// =====================
+// VIZINHOS / INTERIOR
+// =====================
 static char getTileAt(const MapLoader &map, int tx, int tz)
 {
     const auto &data = map.data();
     const int H = map.getHeight();
 
-    if (tz < 0 || tz >= H)
-        return '0';
-    if (tx < 0 || tx >= (int)data[tz].size())
-        return '0';
-
+    if (tz < 0 || tz >= H) return '0';
+    if (tx < 0 || tx >= (int)data[tz].size()) return '0';
     return data[tz][tx];
 }
 
 static void drawFace(float wx, float wz, int face, char neighbor, GLuint texParedeInternaX, float time)
 {
-    bool outside = (neighbor == '0' || neighbor == 'L' || neighbor == 'B');
+    bool outside = (neighbor == '0' || neighbor == 'L' || neighbor == 'B' || neighbor == 'X');
 
     if (outside)
     {
         glDisable(GL_LIGHT1);
         glLightModelfv(GL_LIGHT_MODEL_AMBIENT, kAmbientOutdoor);
         glEnable(GL_LIGHT0);
-
         desenhaParedePorFace(wx, wz, texParedeInternaX, face);
     }
     else if (neighbor != '2')
@@ -364,6 +323,63 @@ static void drawFace(float wx, float wz, int face, char neighbor, GLuint texPare
     }
 }
 
+// =====================
+// SPRITE “BONITO” (billboard + bob + alpha)
+// =====================
+static void drawSpriteBillboard(
+    float x, float z,
+    float w, float h,
+    GLuint tex,
+    float camX, float camZ,
+    float time,
+    float bobAmp,
+    float yBase)
+{
+    if (tex == 0) return;
+
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glEnable(GL_ALPHA_TEST);
+    glAlphaFunc(GL_GREATER, 0.10f);
+
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glColor4f(1, 1, 1, 1);
+
+    float bob = bobAmp * (0.5f + 0.5f * std::sin(time * 2.8f + (x + z) * 0.2f));
+
+    glPushMatrix();
+    glTranslatef(x, yBase + bob, z);
+
+    float ddx = camX - x;
+    float ddz = camZ - z;
+    float angle = std::atan2(ddx, ddz) * 180.0f / 3.14159f;
+    glRotatef(angle, 0.0f, 1.0f, 0.0f);
+
+    float hw = w * 0.5f;
+
+    glBegin(GL_QUADS);
+    glNormal3f(0, 0, 1);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f(-hw, 0.0f, 0.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f( hw, 0.0f, 0.0f);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f( hw, h,   0.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f(-hw, h,   0.0f);
+    glEnd();
+
+    glPopMatrix();
+
+    glDisable(GL_ALPHA_TEST);
+    glDisable(GL_BLEND);
+
+    glDepthMask(GL_TRUE);
+}
+
+// =====================
+// LEVEL
+// =====================
 void drawLevel(const MapLoader &map, float px, float pz, float dx, float dz, const RenderAssets &r, float time)
 {
     const auto &data = map.data();
@@ -381,17 +397,15 @@ void drawLevel(const MapLoader &map, float px, float pz, float dx, float dz, con
             float wx, wz;
             m.tileCenter(x, z, wx, wz);
 
-            // CULLING ÚNICO (cenário)
             if (!isVisibleXZ(wx, wz, px, pz, hasFwd, fwdx, fwdz))
                 continue;
 
             char c = data[z][x];
 
-            bool isEntity = (c == 'J' || c == 'T' || c == 'M' || c == 'K' ||
-                             c == 'G' || c == 'H' || c == 'A' || c == 'E' ||
-                             c == 'F' || c == 'I');
+            bool isEntityTile = (c == 'J' || c == 'T' || c == 'M' || c == 'K' || c == 'G' ||
+                                 c == 'H' || c == 'A' || c == 'E' || c == 'F' || c == 'I' || c == 'X');
 
-            if (isEntity)
+            if (isEntityTile)
             {
                 char viz1 = getTileAt(map, x + 1, z);
                 char viz2 = getTileAt(map, x - 1, z);
@@ -431,14 +445,14 @@ void drawLevel(const MapLoader &map, float px, float pz, float dx, float dz, con
             else if (c == '2')
             {
                 char vizFrente = getTileAt(map, x, z + 1);
-                char vizTras = getTileAt(map, x, z - 1);
-                char vizDireita = getTileAt(map, x + 1, z);
-                char vizEsq = getTileAt(map, x - 1, z);
+                char vizTras   = getTileAt(map, x, z - 1);
+                char vizDir    = getTileAt(map, x + 1, z);
+                char vizEsq    = getTileAt(map, x - 1, z);
 
                 drawFace(wx, wz, 0, vizFrente, r.texParedeInterna, time);
-                drawFace(wx, wz, 1, vizTras, r.texParedeInterna, time);
-                drawFace(wx, wz, 2, vizDireita, r.texParedeInterna, time);
-                drawFace(wx, wz, 3, vizEsq, r.texParedeInterna, time);
+                drawFace(wx, wz, 1, vizTras,   r.texParedeInterna, time);
+                drawFace(wx, wz, 2, vizDir,    r.texParedeInterna, time);
+                drawFace(wx, wz, 3, vizEsq,    r.texParedeInterna, time);
             }
             else if (c == 'L')
             {
@@ -452,57 +466,17 @@ void drawLevel(const MapLoader &map, float px, float pz, float dx, float dz, con
     }
 }
 
-static void drawSprite(float x, float z, float w, float h, GLuint tex, float camX, float camZ)
-{
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    glEnable(GL_ALPHA_TEST);
-    glAlphaFunc(GL_GREATER, 0.1f);
-
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glColor3f(1, 1, 1);
-
-    glPushMatrix();
-    glTranslatef(x, 0.0f, z);
-
-    float ddx = camX - x;
-    float ddz = camZ - z;
-    float angle = std::atan2(ddx, ddz) * 180.0f / 3.14159f;
-
-    glRotatef(angle, 0.0f, 1.0f, 0.0f);
-
-    float hw = w * 0.5f;
-
-    glBegin(GL_QUADS);
-    glNormal3f(0, 0, 1);
-
-    glTexCoord2f(1.0f, 1.0f);
-    glVertex3f(-hw, 0.0f, 0.0f);
-    glTexCoord2f(0.0f, 1.0f);
-    glVertex3f(hw, 0.0f, 0.0f);
-    glTexCoord2f(0.0f, 0.0f);
-    glVertex3f(hw, h, 0.0f);
-    glTexCoord2f(1.0f, 0.0f);
-    glVertex3f(-hw, h, 0.0f);
-    glEnd();
-
-    glPopMatrix();
-
-    glDisable(GL_ALPHA_TEST);
-    glDisable(GL_BLEND);
-}
-
-// Desenha inimigos e itens
+// =====================
+// ENTIDADES (itens + inimigos)
+// =====================
 void drawEntities(const std::vector<Enemy> &enemies, const std::vector<Item> &items,
                   float camX, float camZ, float dx, float dz, const RenderAssets &r)
 {
     glDisable(GL_LIGHTING);
-    glEnable(GL_DEPTH_TEST);
-    glDepthMask(GL_TRUE);
-    glDepthFunc(GL_LEQUAL);
-    glEnable(GL_ALPHA_TEST);
-    glAlphaFunc(GL_GREATER, 0.1f);
+    glEnable(GL_TEXTURE_2D);
+
+    // usa tempo global aqui só pra bob bonitinho (sem mudar assinatura)
+    float t = 0.001f * (float)glutGet(GLUT_ELAPSED_TIME);
 
     float fwdx, fwdz;
     bool hasFwd = getForwardXZ(dx, dz, fwdx, fwdz);
@@ -510,40 +484,48 @@ void drawEntities(const std::vector<Enemy> &enemies, const std::vector<Item> &it
     // --- ITENS ---
     for (const auto &item : items)
     {
-        if (!item.active)
-            continue;
-
-        if (!isVisibleXZ(item.x, item.z, camX, camZ, hasFwd, fwdx, fwdz))
-            continue;
+        if (!item.active) continue;
+        if (!isVisibleXZ(item.x, item.z, camX, camZ, hasFwd, fwdx, fwdz)) continue;
 
         if (item.type == ITEM_HEALTH)
-            drawSprite(item.x, item.z, 0.7f, 0.7f, r.texHealth, camX, camZ);
+            drawSpriteBillboard(item.x, item.z, 0.75f, 0.75f, r.texHealth, camX, camZ, t, 0.08f, 0.05f);
         else if (item.type == ITEM_AMMO)
-            drawSprite(item.x, item.z, 0.7f, 0.7f, r.texAmmo, camX, camZ);
+            drawSpriteBillboard(item.x, item.z, 0.75f, 0.75f, r.texAmmo,   camX, camZ, t, 0.08f, 0.05f);
+        else if (item.type == ITEM_KEY)
+        {
+            GLuint tex = (r.texKey != 0) ? r.texKey : r.texAmmo;
+            drawSpriteBillboard(item.x, item.z, 0.70f, 0.70f, tex, camX, camZ, t, 0.10f, 0.05f);
+        }
+        else if (item.type == ITEM_SPECIAL)
+        {
+            GLuint tex = (r.texSpecial != 0) ? r.texSpecial : r.texHealth;
+            drawSpriteBillboard(item.x, item.z, 0.90f, 0.90f, tex, camX, camZ, t, 0.12f, 0.05f);
+        }
     }
 
     // --- INIMIGOS ---
     for (const auto &en : enemies)
     {
-        if (en.state == STATE_DEAD)
-            continue;
+        if (en.state == STATE_DEAD) continue;
+        if (!isVisibleXZ(en.x, en.z, camX, camZ, hasFwd, fwdx, fwdz)) continue;
 
-        if (!isVisibleXZ(en.x, en.z, camX, camZ, hasFwd, fwdx, fwdz))
-            continue;
+        int ti = (en.type < 0 || en.type > 4) ? 0 : en.type;
 
-        int t = (en.type < 0 || en.type > 4) ? 0 : en.type;
+        GLuint currentTex = 0;
+        if (en.hurtTimer > 0.0f) currentTex = r.texEnemiesDamage[ti];
+        else if (en.state == STATE_CHASE || en.state == STATE_ATTACK) currentTex = r.texEnemiesRage[ti];
+        else currentTex = r.texEnemies[ti];
 
-        GLuint currentTex;
-        if (en.hurtTimer > 0.0f)
-            currentTex = r.texEnemiesDamage[t];
-        else if (en.state == STATE_CHASE || en.state == STATE_ATTACK)
-            currentTex = r.texEnemiesRage[t];
-        else
-            currentTex = r.texEnemies[t];
+        float w = en.isBoss ? 3.7f : 2.7f;
+        float h = en.isBoss ? 4.1f : 3.0f;
 
-        drawSprite(en.x, en.z, 2.5f, 2.5f, currentTex, camX, camZ);
+        drawSpriteBillboard(en.x, en.z, w, h, currentTex, camX, camZ, t, 0.00f, 0.0f);
     }
 
+    // --- PORTAL (X) ---
+    // desenha por último pra ficar bem visível
+    // varre itens (não tem ItemType pro portal, então a gente usa o map pra achar 'X')
+    // OBS: como drawEntities não recebe o map, o portal visual fica melhor desenhado no drawLevel
+    // Se você quiser o portal 3D aqui, me manda o drawlevel.h pra eu passar o map também.
     glEnable(GL_LIGHTING);
-    glDisable(GL_ALPHA_TEST);
 }

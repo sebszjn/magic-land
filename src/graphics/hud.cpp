@@ -182,10 +182,10 @@ static void drawDoomBar(int w, int h, const HudTextures& tex, const HudState& s)
 
     glColor3f(1, 1, 1);
     glBegin(GL_QUADS);
-    glTexCoord2f(0, 0);                 glVertex2f(0, 0);
-    glTexCoord2f(repeticaoX, 0);         glVertex2f((float)w, 0);
-    glTexCoord2f(repeticaoX, repeticaoY);glVertex2f((float)w, hBar);
-    glTexCoord2f(0, repeticaoY);         glVertex2f(0, hBar);
+    glTexCoord2f(0, 0);                  glVertex2f(0, 0);
+    glTexCoord2f(repeticaoX, 0);          glVertex2f((float)w, 0);
+    glTexCoord2f(repeticaoX, repeticaoY); glVertex2f((float)w, hBar);
+    glTexCoord2f(0, repeticaoY);          glVertex2f(0, hBar);
     glEnd();
     glDisable(GL_TEXTURE_2D);
 
@@ -237,7 +237,7 @@ static void drawDoomBar(int w, int h, const HudTextures& tex, const HudState& s)
     glVertex2f(barX, barY + barH);
     glEnd();
 
-    // arma ícone
+    // arma ícone (DIMINUÍDO pra não sair do HUD)
     if (tex.texGunHUD != 0)
     {
         glEnable(GL_TEXTURE_2D);
@@ -245,15 +245,24 @@ static void drawDoomBar(int w, int h, const HudTextures& tex, const HudState& s)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glColor3f(1, 1, 1);
 
-        float iconSize = hBar * 1.5f;
-        float iconY = (hBar - iconSize) / 2.0f + (hBar * 0.1f);
+        // Antes: iconSize = hBar * 1.5f; weaponWidth = iconSize * 2.2f;
+        // Agora: menor e mais seguro
+        float iconSize = hBar * 0.80f;
+        float iconY = (hBar - iconSize) / 2.0f + (hBar * 0.06f);
 
         glBindTexture(GL_TEXTURE_2D, tex.texGunHUD);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-        float weaponWidth = iconSize * 2.2f;
-        float xIconGun = (w * 0.75f) - (weaponWidth / 2.0f);
+        float weaponWidth = iconSize * 1.00f;
+
+        // Centraliza um pouco mais pra não estourar na direita
+        float xIconGun = (w * 0.73f) - (weaponWidth / 2.0f);
+
+        // Se ainda estiver muito pra direita (telas pequenas), puxa pra dentro
+        float maxRight = (float)w - 140.0f;
+        if (xIconGun + weaponWidth > maxRight)
+            xIconGun = maxRight - weaponWidth;
 
         glBegin(GL_QUADS);
         glTexCoord2f(0, 1); glVertex2f(xIconGun, iconY);

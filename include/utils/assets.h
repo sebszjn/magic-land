@@ -12,12 +12,18 @@ struct GameAssets
     GLuint texChaoInterno = 0;
     GLuint texParedeInterna = 0;
     GLuint texTeto = 0;
-    GLuint texEnemy = 0;
-    GLuint texEnemyRage = 0;    // Viu o player
-    GLuint texEnemyDamage = 0;  // Leva dano
-    GLuint texHealthOverlay = 0; // Tela de cura
+
+    GLuint texHealthOverlay = 0;
     GLuint texHealth = 0;
     GLuint texAmmo = 0;
+
+    // itens
+    GLuint texKey = 0;
+    GLuint texSpecial = 0;
+
+    // NOVO: portal/saida (tile X)
+    GLuint texPortal = 0;
+
     GLuint texGunDefault = 0;
     GLuint texGunFire1 = 0;
     GLuint texGunFire2 = 0;
@@ -35,7 +41,11 @@ struct GameAssets
     GLuint progSangue = 0;
     GLuint progLava = 0;
 
+    // skies
     GLuint texSkydome = 0;
+    GLuint texSkydome1 = 0;
+    GLuint texSkydome2 = 0;
+    GLuint texSkydome3 = 0;
 };
 
 bool loadAssets(GameAssets &a);

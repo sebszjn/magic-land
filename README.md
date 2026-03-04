@@ -1,22 +1,18 @@
-❤️ Nicolas ❤️ PARABÉNS AOS QUE ESTÃO LISTADOS, E SEU GRUPO, COMO COLABORADORES NESTE REPOSITÓRIO
+Magic Land 
 
+Este jogo é um FPS ambientado em um mundo mágico, onde o jogador precisa explorar diferentes áreas e enfrentar criaturas místicas para sobreviver. Ao longo da jornada, o jogador atravessa três fases distintas, cada uma contendo novos desafios, monstros e recursos espalhados pelo mapa.
 
-# ODEIOS
-- ODEIO DÁRIO
-- ODEIO HELOYSA
-- ODEIO AUZIER
-- ODEIO KELVIN
+Durante a exploração, é necessário lutar contra inimigos mágicos, coletar itens como vida e munição e encontrar chaves deixadas pelos monstros derrotados. Essas chaves são essenciais para desbloquear o portal que permite avançar para a próxima fase.
 
-# DoomLike OpenGL Project
+Conforme o jogador progride, os desafios aumentam, culminando em uma batalha final contra um poderoso boss, guardião da última área do jogo. Apenas derrotando esse inimigo final será possível completar a jornada e conquistar a vitória.
+
+O jogo combina exploração, combate e progressão entre fases, criando uma experiência inspirada em clássicos jogos de ação em primeira pessoa, mas com uma temática de fantasia e criaturas mágicas.
+
 
 Este projeto utiliza **OpenGL (pipeline fixo + GLSL 1.20)** para renderização,  
 **GLUT** para gerenciamento de janela/entrada e **GLEW** para carregar funções modernas  
 como shaders, VBOs e extensões necessárias.
 
-## 🎥 Demonstração
-https://github.com/user-attachments/assets/be16fdec-675c-429a-895a-5aeb3071632c
-
----
 
 ## 📦 Dependências
 
@@ -28,12 +24,12 @@ Certifique-se de ter instalados os seguintes pacotes no seu sistema Linux:
 
 ### 🖥️ Bibliotecas OpenGL
 - `freeglut`
-- `glew` (NOVA BIBLIOTECA QUE PRECISA INSTALAR)
+- `glew`
 - `mesa`
 - `glu`
 
 ### 🖼️ Carregamento de Texturas  
-- `stb_image.h` (arquivo de cabeçalho incluso no projeto)
+- `stb_image.h`
 
 ---
 
@@ -76,6 +72,9 @@ A cena pode ser explorada em primeira pessoa, com movimentação típica de FPS 
 | Ação | Resultado |
 |------|-----------|
 | **Mover o mouse** | Olhar em qualquer direção |
+| **Click esquerdo** | Ataque normal |
+| **Click direito** | Ataque especial (Apos pegar item especial) |
+
 
 ---
 
@@ -84,6 +83,7 @@ A cena pode ser explorada em primeira pessoa, com movimentação típica de FPS 
 |-------|------|
 | **Alt + Enter** | Alterna entre tela cheia e modo janela |
 | **ESC** | Encerra o programa |
+| **P** | Menu de pausa |
 
 ---
 
@@ -91,26 +91,6 @@ A cena pode ser explorada em primeira pessoa, com movimentação típica de FPS 
 
 O mapa do jogo é definido por um arquivo **texto (ASCII)**, onde **cada caractere representa um tile** do mundo.  
 Cada **linha do arquivo** corresponde a uma linha do mapa, e **todas as linhas devem ter o mesmo comprimento** (mesma quantidade de colunas).
-
----
-
-### ✅ Regras importantes
-- O arquivo deve ser salvo como `.txt`
-- Cada linha representa uma “fileira” do mapa
-- Todas as linhas precisam ter o mesmo tamanho
-- Use **apenas os caracteres da legenda abaixo**
-- Deve existir **exatamente um `9`** (posição inicial do jogador)
-
----
-
-### 🧩 Legenda do mapa (originais)
-| Caractere | Significado |
-|----------|-------------|
-| `1` | Parede |
-| `0` | Chão normal (piso) |
-| `L` | Lava (tile com shader de calor) |
-| `B` | Sangue (tile com shader de distorção) |
-| `9` | Spawn do jogador *(o loader converte para `0` após ler)* |
 
 ---
 
@@ -151,6 +131,8 @@ Os itens também são definidos diretamente no mapa e funcionam como pontos de s
 |----------|-----|-----------|
 | `H` | Health | Recupera vida do jogador |
 | `A` | Ammo | Recupera munição |
+| `S` | Special | Ataque especial com dobro de dano |
+
 
 - não geram geometria,
 - não bloqueiam passagem,
